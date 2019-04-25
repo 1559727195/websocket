@@ -1,4 +1,4 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.Iback;
 
 public class CallbackDataWrapper<T> {
 

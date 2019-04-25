@@ -1,6 +1,8 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.listener;
 
+import android.content.Context;
 import android.util.Log;
+import com.massky.wsface.Iback.INotifyListener;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -32,13 +34,13 @@ public class NotifyListenerManager {
      * 后台推送
      * @param content
      */
-    public void push(String content) {
+    public void push(String content,Context context) {
         INotifyListener listener = map.get("notifyAnnounceMsg");
         if (listener == null) {
 //            Logger.t(TAG).d("no found notify listener");
             Log.e("robin debug", "no found notify listener");
             return;
         }
-        listener.fire(content);
+        listener.fire(content,context);
     }
 }

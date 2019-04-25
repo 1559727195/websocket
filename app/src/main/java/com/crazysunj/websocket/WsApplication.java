@@ -3,6 +3,9 @@ package com.crazysunj.websocket;
 import android.app.Application;
 import android.util.Log;
 
+import com.massky.wsface.Iback.ForegroundCallbacks;
+import com.massky.wsface.service.WsManagerService;
+
 
 public class WsApplication extends Application {
     private static WsApplication _instance;
@@ -21,9 +24,9 @@ public class WsApplication extends Application {
         ForegroundCallbacks.init(this).addListener(new ForegroundCallbacks.Listener() {
             @Override
             public void onBecameForeground() {
-//                Logger.t("WsManager").d("应用回到前台调用重连方法");
+//                Logger.t("WsManagerService").d("应用回到前台调用重连方法");
                 Log.e("robin debug","应用回到前台调用重连方法");
-                WsManager.getInstance().reconnect();
+                WsManagerService.getInstance().reconnect(_instance);
             }
 
             @Override

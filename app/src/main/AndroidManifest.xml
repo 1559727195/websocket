@@ -25,7 +25,7 @@
 
         <!--监听网络变化-->
         <receiver
-            android:name=".NetStatusReceiver">
+            android:name="com.massky.wsface.receiver.NetStatusReceiver">
             <intent-filter>
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE"/>
             </intent-filter>
@@ -33,12 +33,13 @@
 
         <!--人脸push接收receiver-->
         <receiver
-            android:name=".FacePushReceiver"
+            android:name="com.massky.face.FacePushReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.massky.face.push.receiver" />
                 <category android:name="com.crazysunj.websocket" />
+                <!--换成包名-->
             </intent-filter>
         </receiver>
 

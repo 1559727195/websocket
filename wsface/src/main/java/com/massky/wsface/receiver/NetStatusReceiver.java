@@ -1,4 +1,4 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.receiver;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.util.Log;
+
+import com.massky.wsface.service.WsManagerService;
 
 
 public class NetStatusReceiver extends BroadcastReceiver {
@@ -26,14 +28,14 @@ public class NetStatusReceiver extends BroadcastReceiver {
             NetworkInfo dataNetworkInfo = connMgr.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
             if (wifiNetworkInfo.isConnected() && dataNetworkInfo.isConnected()) {
 //                Toast.makeText(context, "WIFI已连接,移动数据已连接", Toast.LENGTH_SHORT).show();
-                Log.e("robin debug","监听到可用网络切换,调用重连方法");
-                WsManager.getInstance().reconnect();//wify 4g切换重连websocket
+                Log.e("robin debug", "监听到可用网络切换,调用重连方法");
+                WsManagerService.getInstance().reconnect(context);//wify 4g切换重连websocket
             } else if (wifiNetworkInfo.isConnected() && !dataNetworkInfo.isConnected()) {
 //                Toast.makeText(context, "WIFI已连接,移动数据已断开", Toast.LENGTH_SHORT).show();
             } else if (!wifiNetworkInfo.isConnected() && dataNetworkInfo.isConnected()) {
 //                Toast.makeText(context, "WIFI已断开,移动数据已连接", Toast.LENGTH_SHORT).show();
-                Log.e("robin debug","监听到可用网络切换,调用重连方法");
-                WsManager.getInstance().reconnect();//wify 4g切换重连websocket
+                Log.e("robin debug", "监听到可用网络切换,调用重连方法");
+                WsManagerService.getInstance().reconnect(context);//wify 4g切换重连websocket
             } else {
 //                Toast.makeText(context, "WIFI已断开,移动数据已断开", Toast.LENGTH_SHORT).show();
             }
@@ -41,17 +43,17 @@ public class NetStatusReceiver extends BroadcastReceiver {
             //这里的就不写了，前面有写，大同小异
             System.out.println("API level 大于21");
             //获得ConnectivityManager对象
-                        // 获取网络连接管理器
+            // 获取网络连接管理器
             ConnectivityManager connectivityManager
-                    = (ConnectivityManager) WsApplication.getInstance()
-                    .getSystemService(Context.CONNECTIVITY_SERVICE);
+                    = (ConnectivityManager) context.
+                    getSystemService(Context.CONNECTIVITY_SERVICE);
             // 获取当前网络状态信息
             NetworkInfo info = connectivityManager.getActiveNetworkInfo();
 
             if (info != null && info.isAvailable()) {
-//                Logger.t("WsManager").d("监听到可用网络切换,调用重连方法");
-                Log.e("robin debug","监听到可用网络切换,调用重连方法");
-                WsManager.getInstance().reconnect();//wify 4g切换重连websocket
+//                Logger.t("WsManagerService").d("监听到可用网络切换,调用重连方法");
+                Log.e("robin debug", "监听到可用网络切换,调用重连方法");
+                WsManagerService.getInstance().reconnect(context);//wify 4g切换重连websocket
             }
         }
     }

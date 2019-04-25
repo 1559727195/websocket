@@ -1,6 +1,7 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.service;
 
 import android.content.Context;
+import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Handler;
@@ -10,8 +11,20 @@ import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
+import com.alibaba.fastjson.JSON;
+import com.massky.wsface.BuildConfig;
+import com.massky.wsface.Iback.CallbackDataWrapper;
+import com.massky.wsface.Iback.CallbackWrapper;
+import com.massky.wsface.Iback.ICallback;
+import com.massky.wsface.Iback.IWsCallback;
+import com.massky.wsface.listener.NotifyListenerManager;
+import com.massky.wsface.receiver.NetStatusReceiver;
+import com.massky.wsface.response.Action;
+import com.massky.wsface.response.Request;
+import com.massky.wsface.response.Response;
+import com.massky.wsface.util.Codec;
+import com.massky.wsface.util.MD5Util;
+import com.massky.wsface.util.Timeuti;
 import com.neovisionaries.ws.client.WebSocket;
 import com.neovisionaries.ws.client.WebSocketAdapter;
 import com.neovisionaries.ws.client.WebSocketException;
@@ -20,7 +33,6 @@ import com.neovisionaries.ws.client.WebSocketFrame;
 
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -28,51 +40,80 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.logging.Logger;
 
-public class WsManager {
-    private static WsManager mInstance;
+
+public class WsManagerService {
+    private static WsManagerService mInstance;
     private final String TAG = this.getClass().getSimpleName();
     private static final long HEARTBEAT_INTERVAL = 30000;//心跳间隔
+    public static final String COM_MASSKY_FACE_PUSH = "com.massky.face.push.receiver";
     /**
      * WebSocket config
      */
     private static final int FRAME_QUEUE_SIZE = 5;
     private static final int CONNECT_TIMEOUT = 5000;
-    private static final String DEF_TEST_URL = "ws://test.sraum.com/WebSocketTest/websocket";//测试服默认地址
+    private static final String DEF_TEST_URL = "ws://192.168.169.220:8080/Mysql/myHandler";//测试服默认地址-ws://test.sraum.com/WebSocketTest/websocket
     private static final String DEF_RELEASE_URL = "ws://masskyface.massky.com:22765";//正式服默认地址-ws://192.168.169.220:8080/Mysql/myHandler
-    private static final String DEF_URL = BuildConfig.DEBUG ? DEF_TEST_URL : DEF_RELEASE_URL;
+    private static String DEF_URL = "ws://192.168.169.220:8080/Mysql/myHandler";
     private String url;
 
     private WsStatus mStatus;
     private WebSocket ws;
     private WsListener mListener;
-    private FaceControlResponseListener faceControlResponseListener;
+    private NetStatusReceiver netWorkStateReceiver;
+    private Context context;
+    private boolean isdisconnect;//外部断开
 
-    private WsManager() {
+
+    private WsManagerService() {
 
     }
 
-    public static WsManager getInstance() {
+    /**
+     * 设置webSocket URL
+     *
+     * @param url
+     */
+    public void setUrl(String url) {
+        DEF_URL = url;
+    }
+
+
+    public static WsManagerService getInstance() {
         if (mInstance == null) {
-            synchronized (WsManager.class) {
+            synchronized (WsManagerService.class) {
                 if (mInstance == null) {
-                    mInstance = new WsManager();
+                    mInstance = new WsManagerService();
                 }
             }
         }
         return mInstance;
     }
 
-    public void init() {
+    /**
+     * 注册监听
+     */
+    private void regist_receiver() {
+        if (netWorkStateReceiver == null) {
+            netWorkStateReceiver = new NetStatusReceiver();
+        }
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+        context.registerReceiver(netWorkStateReceiver, filter);
+    }
+
+    public void init(ConnectFaceWsLisenter connectFaceWsLisenter, Context context) {
         try {
+            this.context = context;
+            regist_receiver();
             /**
              * configUrl其实是缓存在本地的连接地址
              * 这个缓存本地连接地址是app启动的时候通过http请求去服务端获取的,
              * 每次app启动的时候会拿当前时间与缓存时间比较,超过6小时就再次去服务端获取新的连接地址更新本地缓存
              */
-            String configUrl = "";
-            url = TextUtils.isEmpty(configUrl) ? DEF_URL : configUrl;
+//            regist_receiver(context);
+            this.connectFaceWsLisenter = connectFaceWsLisenter;
+            url = DEF_URL;
             ws = new WebSocketFactory().createSocket(url, CONNECT_TIMEOUT)
                     .setFrameQueueSize(FRAME_QUEUE_SIZE)//设置帧队列最大值为5
                     .setMissingCloseFrameAllowed(false)//设置不允许服务端关闭连接却未发送关闭帧
@@ -99,23 +140,43 @@ public class WsManager {
         public void onTextMessage(WebSocket websocket, String text) throws Exception {
             super.onTextMessage(websocket, text);
 //            Logger.t(TAG).d(text);
-            Log.e("robin debug", text);
+//            Log.e("robin debug", text);
             Response response = Codec.decoder(text);//解析出第一层bean
             for (Map.Entry<Long, CallbackWrapper> vo : callbacks.entrySet()) {
                 CallbackWrapper value = vo.getValue();
-                if (value.getAction().toString().toLowerCase().equals(response.getCmd())) {
+                if (value.getAction().toString().equals(response.getCmd())) {
                     CallbackWrapper wrapper = callbacks.remove(Long.parseLong(String.valueOf(vo.getKey())));//找到对应callback
                     if (wrapper == null) {
                         return;
                     }
-                    wrapper.getTimeoutTask().cancel(true);//取消超时任务
-                    wrapper.getTempCallback().onSuccess(text);
+//                    wrapper.getTimeoutTask().cancel(true);//取消超时任务
+                    switch (response.getCmd()) {
+                        case "validate":
+                        case "beat":
+                            switch (response.getResult()) {
+                                case "100":
+                                    wrapper.getTempCallback().onSuccess(text);
+                                    break;
+                                default:
+                                    wrapper.getTempCallback().onError(text, null, null);
+                                    break;
+                            }
+                            break;
+                    }
                     break;
                 }
             }
 
+            //添加判断校验，心跳（过滤掉）
             //消息分发
-            NotifyListenerManager.getInstance().push(text);
+            switch (response.getCmd()) {
+                case "validate":
+                case "beat":
+                    break;
+                default:
+                    NotifyListenerManager.getInstance().push(text, context);
+                    break;
+            }
         }
 
         @Override
@@ -125,7 +186,7 @@ public class WsManager {
 //            Logger.t(TAG).d("连接成功");
             Log.e("robin debug", "连接成功");
             setStatus(WsStatus.CONNECT_SUCCESS);
-//            ws.sendText("你好");
+            validate();
         }
 
 
@@ -136,7 +197,14 @@ public class WsManager {
 //            Logger.t(TAG).d("连接错误");
             Log.e("robin debug", "连接错误");
             setStatus(WsStatus.CONNECT_FAIL);
-            reconnect();
+            if (connectFaceWsLisenter != null) {
+                if(!isdisconnect) {
+                    reconnect(context);
+                } else {
+                    isdisconnect = false;
+                }
+                connectFaceWsLisenter.connecterror();
+            }
         }
 
 
@@ -147,8 +215,29 @@ public class WsManager {
 //            Logger.t(TAG).d("断开连接");
             Log.e("robin debug", "断开连接");
             setStatus(WsStatus.CONNECT_FAIL);
-            reconnect();
+            if (connectFaceWsLisenter != null) {
+                if(!isdisconnect) {
+                    reconnect(context);
+                } else {
+                    isdisconnect = false;
+                }
+                connectFaceWsLisenter.connecterror();
+            }
         }
+    }
+
+    /**
+     * 访问验证
+     */
+    private void validate() {
+        Map map = new HashMap();
+        map.put("cmd", "validate");
+        map.put("type", "device");
+        map.put("loginAccount", "34bcd4543a902d");
+        String timeStamp = Timeuti.getTime();
+        map.put("timeStamp", timeStamp);
+        map.put("signature", MD5Util.md5("34bcd4543a902d" + "3a902d" + timeStamp));
+        send_inner(Action.validate, JSON.toJSONString(map));
     }
 
     private void setStatus(WsStatus status) {
@@ -159,7 +248,23 @@ public class WsManager {
         return mStatus;
     }
 
+    /**
+     * 内部断开
+     */
+    private void disconnect_inner() {
+        if (ws != null)
+            ws.disconnect();
+    }
+
+    /**
+     * 公共断开
+     */
     public void disconnect() {
+//        connectFaceWsLisenter = null;
+        isdisconnect = true;
+        cancelHeartbeat();
+        if (context != null)
+            context.unregisterReceiver(netWorkStateReceiver);
         if (ws != null)
             ws.disconnect();
     }
@@ -205,9 +310,10 @@ public class WsManager {
     }
 
 
-    private boolean isNetConnect() {
-        ConnectivityManager connectivity = (ConnectivityManager) WsApplication.getInstance()
-                .getSystemService(Context.CONNECTIVITY_SERVICE);
+    private boolean isNetConnect(Context context) {
+        if (context == null) return false;
+        ConnectivityManager connectivity = (ConnectivityManager)
+                context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivity != null) {
             NetworkInfo info = connectivity.getActiveNetworkInfo();
             if (info != null && info.isConnected()) {
@@ -222,7 +328,7 @@ public class WsManager {
     }
 
 
-    private static final int REQUEST_TIMEOUT = 10000;//请求超时时间
+    private static final int REQUEST_TIMEOUT = 30000;//请求超时时间
     private AtomicLong seqId = new AtomicLong(SystemClock.uptimeMillis());//每个请求的唯一标识
 
     public void sendReq(Action action, String content, ICallback callback) {
@@ -257,17 +363,17 @@ public class WsManager {
     /**
      * 超时处理
      */
-    private void timeoutHandle(Request request, String content, Action action, ICallback callback, long timeout) {
-        if (request.getReqCount() > 3) {
-//            Logger.t(TAG).d("(action:%s)连续3次请求超时 执行http请求", action.getAction());
-            Log.e("robin debug", "(action:%s)连续3次请求超时 执行http请求" + action.getAction());
-            //走http请求
-        } else {
-            sendReq(action, content, callback, timeout, request.getReqCount() + 1);
-//            Logger.t(TAG).d("(action:%s)发起第%d次请求", action.getAction(), request.getReqCount());
-            Log.e("robin debug", "(action:%s)发起第%d次请求" + action.getAction());
-        }
-    }
+//    private void timeoutHandle(Request request, String content, Action action, ICallback callback, long timeout) {
+//        if (request.getReqCount() > 3) {
+////            Logger.t(TAG).d("(action:%s)连续3次请求超时 执行http请求", action.getAction());
+//            Log.e("robin debug", "(action: " + request.getReqCount() + " 连续3次请求超时 执行请求" + action.getAction());
+//            //走http请求
+//        } else {
+//            sendReq(action, content, callback, timeout, request.getReqCount() + 1);
+////            Logger.t(TAG).d("(action:%s)发起第%d次请求", action.getAction(), request.getReqCount());
+//            Log.e("robin debug", "(action: " + request.getReqCount() + " 发起第%d次请求" + action.getAction());
+//        }
+//    }
 
 
     private ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
@@ -284,18 +390,18 @@ public class WsManager {
      */
     @SuppressWarnings("unchecked")
     private <T> void sendReq(Action action, final String content, final ICallback callback, final long timeout, int reqCount) {
-        if (!isNetConnect()) {
+        if (!isNetConnect(context)) {
             callback.onFail("网络不可用");
             return;
         }
 
         Request request = new Request.Builder<T>()
-                .action(action.getAction())
+                .action(action == null ? null : action.getAction())
                 .seqId(seqId.getAndIncrement())
                 .reqCount(reqCount)
                 .build();
 
-        ScheduledFuture timeoutTask = enqueueTimeout(request.getSeqId(), timeout);//添加超时任务
+//        ScheduledFuture timeoutTask = enqueueTimeout(request.getSeqId(), timeout);//添加超时任务
 
         IWsCallback tempCallback = new IWsCallback() {
 
@@ -315,16 +421,17 @@ public class WsManager {
 
             @Override
             public void onTimeout(Request request, Action action) {
-                timeoutHandle(request, content, action, callback, timeout);
+//                timeoutHandle(request, content, action, callback, timeout);
             }
         };
 
-        callbacks.put(request.getSeqId(),
-                new CallbackWrapper(tempCallback, timeoutTask, action, request));
 
-//        Logger.t(TAG).d("send text : %s", new Gson().toJson(request));
-        Log.e("robin debug", "send text : %s" + new Gson().toJson(request));
-        ws.sendText(new Gson().toJson(content));
+        if (action != null) {
+            callbacks.put(request.getSeqId(),
+                    new CallbackWrapper(tempCallback, null, action, request));
+        }
+        Log.e("robin debug", "content:" + content);
+        ws.sendText(content);
 
     }
 
@@ -347,22 +454,15 @@ public class WsManager {
 
     /**
      * 发送方
-     *  @param action
+     *
      * @param content
-     * @param faceControlResponseListener
      */
-    public void send(Action action, String content, final FaceControlResponseListener faceControlResponseListener) {
-        this.faceControlResponseListener = faceControlResponseListener;
-        sendReq(action, content, new ICallback() {
+    public void send(String content) {
+        sendReq(null, content, new ICallback() {
             @Override
             public void onSuccess(Object o) {
                 setStatus(WsStatus.AUTH_SUCCESS);
-                startHeartbeat();
-                if (faceControlResponseListener != null) {
-                    faceControlResponseListener.face_response((String) o);
-                }
             }
-
 
             @Override
             public void onFail(String msg) {
@@ -371,6 +471,39 @@ public class WsManager {
         });
     }
 
+    /**
+     * 发送内部方法
+     *
+     * @param content
+     */
+    private void send_inner(Action action, String content) {
+        sendReq(action, content, new ICallback() {
+            @Override
+            public void onSuccess(Object o) {
+                setStatus(WsStatus.AUTH_SUCCESS);
+                cancelHeartbeat();//取消心跳
+                send_beat();//立刻发送心跳
+                startHeartbeat();//循环心跳
+                //connected
+                if (connectFaceWsLisenter != null) {
+                    connectFaceWsLisenter.connected();
+                }
+            }
+
+            @Override
+            public void onFail(String msg) {
+//                disconnect(context);//延时100ms，测一下
+                disconnect_inner();
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        reconnect(context);//
+                    }
+                }, 100);
+
+            }
+        });
+    }
 
     /**
      * 开始心跳
@@ -393,29 +526,37 @@ public class WsManager {
     private Runnable heartbeatTask = new Runnable() {
         @Override
         public void run() {
-            sendReq(Action.BEAT, "", new ICallback() {
-                @Override
-                public void onSuccess(Object o) {
-                    heartbeatFailCount = 0;
-                }
-
-
-                @Override
-                public void onFail(String msg) {
-                    heartbeatFailCount++;
-                    if (heartbeatFailCount >= 3) {
-                        reconnect();
-                    }
-                }
-            });
-
+            send_beat();
             mHandler.postDelayed(this, HEARTBEAT_INTERVAL);
         }
     };
 
+    /**
+     * 发送心跳
+     */
+    private void send_beat() {
+        Map map = new HashMap();
+        map.put("cmd", "beat");
+        sendReq(Action.beat, JSON.toJSONString(map), new ICallback() {
+            @Override
+            public void onSuccess(Object o) {
+                heartbeatFailCount = 0;
+            }
 
-    public void reconnect() {
-        if (!isNetConnect()) {
+
+            @Override
+            public void onFail(String msg) {
+                heartbeatFailCount++;
+                if (heartbeatFailCount >= 3) {
+                    reconnect(context);
+                }
+            }
+        });
+    }
+
+
+    public void reconnect(Context context) {
+        if (!isNetConnect(context)) {
             reconnectCount = 0;
 //            Logger.t(TAG).d("重连失败网络不可用");
             Log.e("robin debug", "重连失败网络不可用");
@@ -445,9 +586,12 @@ public class WsManager {
         }
     }
 
+    private ConnectFaceWsLisenter connectFaceWsLisenter;
 
-    public interface FaceControlResponseListener {
-        void face_response(String content);
+    public interface ConnectFaceWsLisenter {
+        void connected();
+
+        void connecterror();
     }
 
 }

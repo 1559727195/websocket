@@ -1,8 +1,8 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.response;
 
 public  enum Action {
-    BEAT("beat"),
-    VALIDATE("validate");
+    beat("beat"),
+    validate("validate");
 
     private String action;
 

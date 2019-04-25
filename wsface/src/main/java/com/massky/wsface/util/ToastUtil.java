@@ -1,4 +1,4 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.util;
 
 import android.content.Context;
 import android.view.Gravity;

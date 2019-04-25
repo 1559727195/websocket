@@ -1,10 +1,13 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.response;
 
-import com.google.gson.annotations.SerializedName;
 
-public class Response {
-    @SerializedName("cmd")
+import java.io.Serializable;
+
+public class Response implements Serializable {
+
     private String cmd;
+
+
 
     public String getCmd() {
         return cmd;
@@ -21,8 +24,6 @@ public class Response {
     public void setResult(String result) {
         this.result = result;
     }
-
-    @SerializedName("result")
     private String result;
 
 

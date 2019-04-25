@@ -1,4 +1,7 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.Iback;
+
+import com.massky.wsface.response.Action;
+import com.massky.wsface.response.Request;
 
 public interface IWsCallback<T> {
     void onSuccess(T t);

@@ -1,12 +1,11 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.response;
 
-import com.google.gson.annotations.SerializedName;
+import java.io.Serializable;
 
-public class Request<T> {
-    @SerializedName("action")
+public class Request<T> implements Serializable {
+
     private String action;
 
-    @SerializedName("req_event")
     private int reqEvent;
 
     public String getAction() {
@@ -49,10 +48,8 @@ public class Request<T> {
         return reqCount;
     }
 
-    @SerializedName("seq_id")
     private long seqId;
 
-    @SerializedName("req")
     private T req;
 
     private transient int reqCount;

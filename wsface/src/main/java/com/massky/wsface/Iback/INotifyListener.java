@@ -1,6 +1,6 @@
-package com.crazysunj.websocket;
+package com.massky.wsface.Iback;
 
-import com.google.gson.annotations.SerializedName;
+import android.content.Context;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -10,7 +10,7 @@ import java.lang.annotation.Target;
 
 //抽象接口
 public interface INotifyListener<T> {
-    void fire(T t);
+    void fire(T t, Context context);
 }
 
 //标记注解
