@@ -30,7 +30,6 @@ import com.neovisionaries.ws.client.WebSocketAdapter;
 import com.neovisionaries.ws.client.WebSocketException;
 import com.neovisionaries.ws.client.WebSocketFactory;
 import com.neovisionaries.ws.client.WebSocketFrame;
-
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +62,7 @@ public class WsManagerService {
     private NetStatusReceiver netWorkStateReceiver;
     private Context context;
     private boolean isdisconnect;//外部断开
+    private String device_serial_number;
 
 
     private WsManagerService() {
@@ -77,6 +77,18 @@ public class WsManagerService {
     public void setUrl(String url) {
         DEF_URL = url;
     }
+
+
+    /**
+     * 设置设备序列号
+     * @param device_serial_number
+     */
+    public void set_device_serial_number(String device_serial_number) {
+        this.device_serial_number = device_serial_number;
+    }
+
+
+
 
 
     public static WsManagerService getInstance() {
@@ -186,8 +198,11 @@ public class WsManagerService {
 //            Logger.t(TAG).d("连接成功");
             Log.e("robin debug", "连接成功");
             setStatus(WsStatus.CONNECT_SUCCESS);
-            validate();
+            validate(device_serial_number);
         }
+
+
+
 
 
         @Override
@@ -229,14 +244,15 @@ public class WsManagerService {
     /**
      * 访问验证
      */
-    private void validate() {
+    private void validate(String device_serial_number) {
         Map map = new HashMap();
         map.put("cmd", "validate");
         map.put("type", "device");
-        map.put("loginAccount", "34bcd4543a902d");
+        map.put("loginAccount", device_serial_number);
         String timeStamp = Timeuti.getTime();
         map.put("timeStamp", timeStamp);
-        map.put("signature", MD5Util.md5("34bcd4543a902d" + "3a902d" + timeStamp));
+        map.put("signature", MD5Util.md5(device_serial_number + device_serial_number.substring(device_serial_number.length()
+        - 6) + timeStamp));
         send_inner(Action.validate, JSON.toJSONString(map));
     }
 

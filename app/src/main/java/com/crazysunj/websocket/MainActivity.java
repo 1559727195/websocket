@@ -7,6 +7,7 @@ import android.widget.Button;
 
 import com.google.gson.Gson;
 import com.massky.wsface.service.WsManagerService;
+import com.massky.wsface.util.SerialNumberUtil;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,7 +24,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        String serial_number = SerialNumberUtil.getSerialNumber();
+        WsManagerService.getInstance().set_device_serial_number(serial_number);
+        WsManagerService.getInstance().setUrl("");//
         WsManagerService.getInstance().init(this,WsApplication.getInstance());//建立连接
+
         btn_send = (Button) findViewById(R.id.btn_send);
         btn_send.setOnClickListener(this);
     }
