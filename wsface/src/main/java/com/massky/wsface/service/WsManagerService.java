@@ -30,6 +30,7 @@ import com.neovisionaries.ws.client.WebSocketAdapter;
 import com.neovisionaries.ws.client.WebSocketException;
 import com.neovisionaries.ws.client.WebSocketFactory;
 import com.neovisionaries.ws.client.WebSocketFrame;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -61,8 +62,12 @@ public class WsManagerService {
     private WsListener mListener;
     private NetStatusReceiver netWorkStateReceiver;
     private Context context;
-    private boolean isdisconnect;//外部断开
+    //    private boolean isconnect = false;//外部断开
     private String device_serial_number;
+    private int time_out_count;
+    private final int FAIL_RECEV_HANDLE = 0x03;
+    private SearchThread searchThread;
+    private boolean isdestroy = false;
 
 
     private WsManagerService() {
@@ -81,14 +86,12 @@ public class WsManagerService {
 
     /**
      * 设置设备序列号
+     *
      * @param device_serial_number
      */
     public void set_device_serial_number(String device_serial_number) {
         this.device_serial_number = device_serial_number;
     }
-
-
-
 
 
     public static WsManagerService getInstance() {
@@ -134,9 +137,18 @@ public class WsManagerService {
             setStatus(WsStatus.CONNECTING);
 //            Logger.t(TAG).d("第一次连接");
             Log.e("robin debug", "第一次连接");
+            searchThread = new SearchThread();
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * 界面唤醒去连
+     */
+    public void onresume() {
+        isdestroy = false;
+        reconnect(context);
     }
 
 
@@ -151,6 +163,7 @@ public class WsManagerService {
         @Override
         public void onTextMessage(WebSocket websocket, String text) throws Exception {
             super.onTextMessage(websocket, text);
+            Log.e("robin debug","onTextMessage:"+ text);
 //            Logger.t(TAG).d(text);
 //            Log.e("robin debug", text);
             Response response = Codec.decoder(text);//解析出第一层bean
@@ -181,7 +194,8 @@ public class WsManagerService {
 
             //添加判断校验，心跳（过滤掉）
             //消息分发
-            switch (response.getCmd()) {
+            if(response != null)
+            switch (response.getCmd() == null ? "" :response.getCmd()) {
                 case "validate":
                 case "beat":
                     break;
@@ -189,6 +203,7 @@ public class WsManagerService {
                     NotifyListenerManager.getInstance().push(text, context);
                     break;
             }
+            time_out_count = 0;
         }
 
         @Override
@@ -197,12 +212,10 @@ public class WsManagerService {
             super.onConnected(websocket, headers);
 //            Logger.t(TAG).d("连接成功");
             Log.e("robin debug", "连接成功");
+//            isconnect = true;
             setStatus(WsStatus.CONNECT_SUCCESS);
             validate(device_serial_number);
         }
-
-
-
 
 
         @Override
@@ -212,14 +225,9 @@ public class WsManagerService {
 //            Logger.t(TAG).d("连接错误");
             Log.e("robin debug", "连接错误");
             setStatus(WsStatus.CONNECT_FAIL);
-            if (connectFaceWsLisenter != null) {
-                if(!isdisconnect) {
-                    reconnect(context);
-                } else {
-                    isdisconnect = false;
-                }
-                connectFaceWsLisenter.connecterror();
-            }
+            reconnect(context);
+            connectFaceWsLisenter.connected(false);
+
         }
 
 
@@ -229,14 +237,10 @@ public class WsManagerService {
             super.onDisconnected(websocket, serverCloseFrame, clientCloseFrame, closedByServer);
 //            Logger.t(TAG).d("断开连接");
             Log.e("robin debug", "断开连接");
-            setStatus(WsStatus.CONNECT_FAIL);
-            if (connectFaceWsLisenter != null) {
-                if(!isdisconnect) {
-                    reconnect(context);
-                } else {
-                    isdisconnect = false;
-                }
-                connectFaceWsLisenter.connecterror();
+            if (!isdestroy) {
+                setStatus(WsStatus.CONNECT_FAIL);
+                reconnect(context);
+                connectFaceWsLisenter.connected(false);
             }
         }
     }
@@ -252,7 +256,7 @@ public class WsManagerService {
         String timeStamp = Timeuti.getTime();
         map.put("timeStamp", timeStamp);
         map.put("signature", MD5Util.md5(device_serial_number + device_serial_number.substring(device_serial_number.length()
-        - 6) + timeStamp));
+                - 6) + timeStamp));
         send_inner(Action.validate, JSON.toJSONString(map));
     }
 
@@ -270,6 +274,7 @@ public class WsManagerService {
     private void disconnect_inner() {
         if (ws != null)
             ws.disconnect();
+        searchThread.onPause();
     }
 
     /**
@@ -277,12 +282,14 @@ public class WsManagerService {
      */
     public void disconnect() {
 //        connectFaceWsLisenter = null;
-        isdisconnect = true;
+        this.isdestroy = true;
         cancelHeartbeat();
         if (context != null)
             context.unregisterReceiver(netWorkStateReceiver);
         if (ws != null)
             ws.disconnect();
+        searchThread.onPause();
+        cancelReconnect();
     }
 
     public enum WsStatus {
@@ -371,6 +378,10 @@ public class WsManagerService {
                 case ERROR_HANDLE:
                     CallbackDataWrapper errorWrapper = (CallbackDataWrapper) msg.obj;
                     errorWrapper.getCallback().onFail((String) errorWrapper.getData());
+                    break;
+                case FAIL_RECEV_HANDLE:
+                    disconnect_inner();
+//                    reconnect(context);
                     break;
             }
         }
@@ -501,21 +512,24 @@ public class WsManagerService {
                 send_beat();//立刻发送心跳
                 startHeartbeat();//循环心跳
                 //connected
-                if (connectFaceWsLisenter != null) {
-                    connectFaceWsLisenter.connected();
+                if (!searchThread.isAlive()) {
+                    searchThread.start();
                 }
+                searchThread.onResume();
+                connectFaceWsLisenter.connected(true);
             }
 
             @Override
             public void onFail(String msg) {
 //                disconnect(context);//延时100ms，测一下
                 disconnect_inner();
-                new Handler().postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        reconnect(context);//
-                    }
-                }, 100);
+//                new Handler().postDelayed(new Runnable() {
+//                    @Override
+//                    public void run() {
+////                        reconnect(context);//
+//                    }
+//                }, 100);
+                connectFaceWsLisenter.connected(false);
 
             }
         });
@@ -564,7 +578,9 @@ public class WsManagerService {
             public void onFail(String msg) {
                 heartbeatFailCount++;
                 if (heartbeatFailCount >= 3) {
-                    reconnect(context);
+                    disconnect_inner();
+//                    reconnect(context);
+                    connectFaceWsLisenter.connected(false);
                 }
             }
         });
@@ -605,9 +621,65 @@ public class WsManagerService {
     private ConnectFaceWsLisenter connectFaceWsLisenter;
 
     public interface ConnectFaceWsLisenter {
-        void connected();
-
-        void connecterror();
+        void connected(boolean isconnect);
     }
+
+
+    class SearchThread extends Thread {
+
+        private Object mPauseLock;
+        private boolean mPauseFlag;
+
+        public SearchThread() {
+            mPauseLock = new Object();
+            mPauseFlag = false;
+        }
+
+        public void onPause() {
+            synchronized (mPauseLock) {
+                mPauseFlag = true;
+            }
+        }
+
+        public void onResume() {
+            synchronized (mPauseLock) {
+                mPauseFlag = false;
+                mPauseLock.notifyAll();
+            }
+        }
+
+        private void pauseThread() {
+            synchronized (mPauseLock) {
+                if (mPauseFlag) {
+                    try {
+                        mPauseLock.wait();
+                    } catch (Exception e) {
+                        Log.v("thread", "fails");
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void run() {
+            //---线程执行部分，仅仅举例为了说明-----
+            while (!mPauseFlag) {
+                try {
+                    Thread.sleep(1000);
+                    time_out_count++;
+
+                    if (time_out_count >= 35) {
+                        mHandler.obtainMessage(FAIL_RECEV_HANDLE)
+                                .sendToTarget();
+                    }
+//                    Log.e("robin debug","thread.go:" + time_out_count);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                pauseThread();
+            }
+        }
+    }
+
 
 }
